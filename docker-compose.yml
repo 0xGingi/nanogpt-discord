@@ -1,0 +1,7 @@
+services:
+  bot:
+    build: .
+    container_name: nanogpt-discord-bot
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data

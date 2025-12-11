@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# Database
+data/
+*.db
+
+# Build
+dist/
+
+# Bun
+bun.lockb
+
+# OS
+.DS_Store
+Thumbs.db
