@@ -5,12 +5,22 @@ import {
 } from "discord.js";
 import { nanogpt } from "../../api/nanogpt.ts";
 
+const ADMIN_USERS = (process.env.CONTEXT_ADMIN_USERS || "").split(",").filter(Boolean);
+
 export const data = new SlashCommandBuilder()
     .setName("usage")
     .setDescription("Check your NanoGPT API usage");
 
 export async function execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ ephemeral: true });
+
+    // Check if user is an admin
+    if (!ADMIN_USERS.includes(interaction.user.id)) {
+        await interaction.editReply({
+            content: "you cannot run this command",
+        });
+        return;
+    }
 
     try {
         const usage = await nanogpt.getUsage();
