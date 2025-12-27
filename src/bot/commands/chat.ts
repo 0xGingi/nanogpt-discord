@@ -5,7 +5,7 @@ import {
     Attachment,
     AutocompleteInteraction,
 } from "discord.js";
-import { nanogpt, type ChatMessage, type TextPart, type ImagePart } from "../../api/nanogpt.ts";
+import { nanogpt, type ChatMessage, type TextPart, type ImagePart, type WebSearchProvider, type WebSearchVariant } from "../../api/nanogpt.ts";
 import { getDefaultModel, getContext, getAllContexts } from "../../db/index.ts";
 import { canUseFeature } from "../../utils/features.ts";
 
@@ -35,17 +35,33 @@ export const data = new SlashCommandBuilder()
             .setDescription("Model to use for this message (overrides default)")
             .setRequired(false)
     )
-    .addBooleanOption((option) =>
+    .addStringOption((option) =>
         option
-            .setName("websearch")
-            .setDescription("Enable web search for real-time info ($0.006/request)")
+            .setName("searchprovider")
+            .setDescription("Web search provider to use for real-time info")
             .setRequired(false)
+            .addChoices(
+                { name: "Default (standard)", value: "default" },
+                { name: "Linkup", value: "linkup" },
+                { name: "Tavily", value: "tavily" },
+                { name: "Exa", value: "exa" },
+                { name: "Kagi", value: "kagi" }
+            )
     )
-    .addBooleanOption((option) =>
+    .addStringOption((option) =>
         option
-            .setName("deepsearch")
-            .setDescription("Enable deep web search for comprehensive info ($0.06/request)")
+            .setName("searchvariant")
+            .setDescription("Search variant (provider-specific)")
             .setRequired(false)
+            .addChoices(
+                { name: "Standard", value: "standard" },
+                { name: "Deep", value: "deep" },
+                { name: "Fast (Exa)", value: "fast" },
+                { name: "Auto (Exa)", value: "auto" },
+                { name: "Neural (Exa)", value: "neural" },
+                { name: "Web (Kagi)", value: "web" },
+                { name: "News (Kagi)", value: "news" }
+            )
     )
     .addAttachmentOption((option) =>
         option
@@ -124,24 +140,19 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const userMessage = interaction.options.getString("message", true);
     const contextName = interaction.options.getString("context");
     const modelOverride = interaction.options.getString("model");
-    const webSearch = interaction.options.getBoolean("websearch") ?? false;
-    const deepSearch = interaction.options.getBoolean("deepsearch") ?? false;
+    const searchProvider = interaction.options.getString("searchprovider") as WebSearchProvider | null;
+    const searchVariant = interaction.options.getString("searchvariant") as WebSearchVariant | null;
     const imageAttachment = interaction.options.getAttachment("image");
 
     const guildId = interaction.guildId || "dm";
     const userId = interaction.user.id;
 
-    // Check feature access
-    if (webSearch) {
-        const check = canUseFeature(interaction, "WEBSEARCH");
-        if (!check.allowed) {
-            await interaction.reply({ content: check.reason, ephemeral: true });
-            return;
-        }
-    }
-
-    if (deepSearch) {
-        const check = canUseFeature(interaction, "DEEPSEARCH");
+    // Check feature access for web search
+    if (searchProvider) {
+        // Check if it's a "deep" variant
+        const isDeepSearch = searchVariant === "deep" || searchVariant === "search";
+        const featureToCheck = isDeepSearch ? "DEEPSEARCH" : "WEBSEARCH";
+        const check = canUseFeature(interaction, featureToCheck);
         if (!check.allowed) {
             await interaction.reply({ content: check.reason, ephemeral: true });
             return;
@@ -154,9 +165,6 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     try {
         // Determine the model to use
         const model = modelOverride || getDefaultModel(guildId, userId);
-
-        // Determine web search mode (deep takes priority over standard)
-        const webSearchMode = deepSearch ? "deep" : webSearch ? "standard" : "none";
 
         // Build the system prompt with optional context
         let systemContent = SYSTEM_PROMPT;
@@ -202,17 +210,19 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         }
 
         // Make the API call
-        const response = await nanogpt.chat(messages, model, { webSearch: webSearchMode });
+        const response = await nanogpt.chat(messages, model, {
+            webSearch: searchProvider || undefined,
+            webSearchVariant: searchVariant || undefined
+        });
 
         const assistantMessage =
             response.choices[0]?.message?.content || "No response received.";
 
         // Build footer with model and search info
         let footerText = `Model: ${model}`;
-        if (webSearchMode === "standard") {
-            footerText += " | Web Search";
-        } else if (webSearchMode === "deep") {
-            footerText += " | Deep Search";
+        if (searchProvider) {
+            const variantText = searchVariant ? `/${searchVariant}` : "";
+            footerText += ` | Search: ${searchProvider}${variantText}`;
         }
         if (imageAttachment) {
             footerText += " | Image";

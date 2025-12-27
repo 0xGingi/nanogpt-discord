@@ -22,11 +22,20 @@ export interface ChatMessage {
     content: string | (TextPart | ImagePart)[];
 }
 
+// Web search provider types
+export type WebSearchProvider = "none" | "default" | "linkup" | "tavily" | "exa" | "kagi";
+
+export type WebSearchVariant =
+    | "standard" | "deep"  // linkup, tavily
+    | "fast" | "auto" | "neural"  // exa
+    | "search" | "web" | "news";  // kagi
+
 export interface ChatCompletionOptions {
     temperature?: number;
     max_tokens?: number;
     top_p?: number;
-    webSearch?: "none" | "standard" | "deep";
+    webSearch?: WebSearchProvider;
+    webSearchVariant?: WebSearchVariant;
 }
 
 export interface ChatCompletionResponse {
@@ -133,15 +142,43 @@ export interface ScrapeUrlsResponse {
     summary: ScrapeSummary;
 }
 
-function getModelWithWebSearch(model: string, webSearch: "none" | "standard" | "deep"): string {
-    switch (webSearch) {
-        case "standard":
-            return `${model}:online`;
-        case "deep":
-            return `${model}:online/linkup-deep`;
-        default:
-            return model;
+function getModelWithWebSearch(
+    model: string,
+    provider: WebSearchProvider,
+    variant?: WebSearchVariant
+): string {
+    if (provider === "none") {
+        return model;
     }
+
+    if (provider === "default") {
+        return `${model}:online`;
+    }
+
+    // Build the suffix based on provider and variant
+    let suffix: string = provider;
+
+    if (variant) {
+        // Handle special cases for variant naming
+        if (provider === "linkup" || provider === "tavily") {
+            // linkup-deep, tavily-deep (standard has no suffix for these)
+            if (variant === "deep") {
+                suffix = `${provider}-deep`;
+            }
+        } else if (provider === "exa") {
+            // exa-fast, exa-auto, exa-neural, exa-deep
+            suffix = `${provider}-${variant}`;
+        } else if (provider === "kagi") {
+            // kagi (standard search), kagi-web, kagi-news, kagi-search (deep search)
+            if (variant === "deep" || variant === "search") {
+                suffix = `${provider}-search`; // deep search for kagi
+            } else if (variant !== "standard") {
+                suffix = `${provider}-${variant}`;
+            }
+        }
+    }
+
+    return `${model}:online/${suffix}`;
 }
 
 class NanoGPTClient {
@@ -180,7 +217,11 @@ class NanoGPTClient {
         model: string,
         options: ChatCompletionOptions = {}
     ): Promise<ChatCompletionResponse> {
-        const finalModel = getModelWithWebSearch(model, options.webSearch || "none");
+        const finalModel = getModelWithWebSearch(
+            model,
+            options.webSearch || "none",
+            options.webSearchVariant
+        );
 
         return this.request<ChatCompletionResponse>("/v1/chat/completions", {
             method: "POST",

@@ -5,7 +5,7 @@ import {
     Attachment,
     AutocompleteInteraction,
 } from "discord.js";
-import { nanogpt, type ChatMessage, type TextPart, type ImagePart } from "../../api/nanogpt.ts";
+import { nanogpt, type ChatMessage, type TextPart, type ImagePart, type WebSearchProvider, type WebSearchVariant } from "../../api/nanogpt.ts";
 import {
     getDefaultModel,
     getContext,
@@ -46,17 +46,33 @@ export const data = new SlashCommandBuilder()
                     .setDescription("Model to use for this message (overrides default)")
                     .setRequired(false)
             )
-            .addBooleanOption((option) =>
+            .addStringOption((option) =>
                 option
-                    .setName("websearch")
-                    .setDescription("Enable web search for real-time info ($0.006/request)")
+                    .setName("searchprovider")
+                    .setDescription("Web search provider to use for real-time info")
                     .setRequired(false)
+                    .addChoices(
+                        { name: "Default (standard)", value: "default" },
+                        { name: "Linkup", value: "linkup" },
+                        { name: "Tavily", value: "tavily" },
+                        { name: "Exa", value: "exa" },
+                        { name: "Kagi", value: "kagi" }
+                    )
             )
-            .addBooleanOption((option) =>
+            .addStringOption((option) =>
                 option
-                    .setName("deepsearch")
-                    .setDescription("Enable deep web search for comprehensive info ($0.06/request)")
+                    .setName("searchvariant")
+                    .setDescription("Search variant (provider-specific)")
                     .setRequired(false)
+                    .addChoices(
+                        { name: "Standard", value: "standard" },
+                        { name: "Deep", value: "deep" },
+                        { name: "Fast (Exa)", value: "fast" },
+                        { name: "Auto (Exa)", value: "auto" },
+                        { name: "Neural (Exa)", value: "neural" },
+                        { name: "Web (Kagi)", value: "web" },
+                        { name: "News (Kagi)", value: "news" }
+                    )
             )
             .addAttachmentOption((option) =>
                 option
@@ -179,30 +195,33 @@ async function handleChat(interaction: ChatInputCommandInteraction, userId: stri
     const userMessage = interaction.options.getString("message", true);
     const contextName = interaction.options.getString("context");
     const modelOverride = interaction.options.getString("model");
-    const webSearch = interaction.options.getBoolean("websearch") ?? false;
-    const deepSearch = interaction.options.getBoolean("deepsearch") ?? false;
+    const searchProvider = interaction.options.getString("searchprovider") as WebSearchProvider | null;
+    const searchVariant = interaction.options.getString("searchvariant") as WebSearchVariant | null;
     const imageAttachment = interaction.options.getAttachment("image");
 
     const guildId = interaction.guildId || "dm";
 
     // Check if features are disabled via environment variables
-    const isWebSearchDisabled = process.env.DISABLE_WEBSEARCH === "true";
-    const isDeepSearchDisabled = process.env.DISABLE_DEEPSEARCH === "true";
+    if (searchProvider) {
+        const isDeepSearch = searchVariant === "deep" || searchVariant === "search";
+        const isWebSearchDisabled = process.env.DISABLE_WEBSEARCH === "true";
+        const isDeepSearchDisabled = process.env.DISABLE_DEEPSEARCH === "true";
 
-    if (webSearch && isWebSearchDisabled) {
-        await interaction.reply({
-            content: "Web search is disabled on this bot.",
-            ephemeral: true,
-        });
-        return;
-    }
+        if (isDeepSearch && isDeepSearchDisabled) {
+            await interaction.reply({
+                content: "Deep search is disabled on this bot.",
+                ephemeral: true,
+            });
+            return;
+        }
 
-    if (deepSearch && isDeepSearchDisabled) {
-        await interaction.reply({
-            content: "Deep search is disabled on this bot.",
-            ephemeral: true,
-        });
-        return;
+        if (!isDeepSearch && isWebSearchDisabled) {
+            await interaction.reply({
+                content: "Web search is disabled on this bot.",
+                ephemeral: true,
+            });
+            return;
+        }
     }
 
     // Defer the reply since API calls can take time
@@ -211,9 +230,6 @@ async function handleChat(interaction: ChatInputCommandInteraction, userId: stri
     try {
         // Determine the model to use
         const model = modelOverride || getDefaultModel(guildId, userId);
-
-        // Determine web search mode (deep takes priority over standard)
-        const webSearchMode = deepSearch ? "deep" : webSearch ? "standard" : "none";
 
         // Build the system prompt with optional context
         let systemContent = SYSTEM_PROMPT;
@@ -271,7 +287,10 @@ async function handleChat(interaction: ChatInputCommandInteraction, userId: stri
         }
 
         // Make the API call
-        const response = await nanogpt.chat(messages, model, { webSearch: webSearchMode });
+        const response = await nanogpt.chat(messages, model, {
+            webSearch: searchProvider || undefined,
+            webSearchVariant: searchVariant || undefined
+        });
 
         const assistantMessage =
             response.choices[0]?.message?.content || "No response received.";
@@ -281,10 +300,9 @@ async function handleChat(interaction: ChatInputCommandInteraction, userId: stri
 
         // Build footer with model and search info
         let footerText = `Model: ${model} | Memory`;
-        if (webSearchMode === "standard") {
-            footerText += " | Web Search";
-        } else if (webSearchMode === "deep") {
-            footerText += " | Deep Search";
+        if (searchProvider) {
+            const variantText = searchVariant ? `/${searchVariant}` : "";
+            footerText += ` | Search: ${searchProvider}${variantText}`;
         }
         if (imageAttachment) {
             footerText += " | Image";

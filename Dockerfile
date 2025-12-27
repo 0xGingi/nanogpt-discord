@@ -14,5 +14,8 @@ COPY . .
 # Create data directory for SQLite
 RUN mkdir -p /app/data
 
-# Run the bot
-CMD ["bun", "run", "src/index.ts"]
+# Make startup script executable
+RUN chmod +x start.sh
+
+# Run the startup script (registers commands then starts bot)
+CMD ["./start.sh"]
