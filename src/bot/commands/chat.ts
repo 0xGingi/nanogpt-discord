@@ -45,7 +45,9 @@ export const data = new SlashCommandBuilder()
                 { name: "Linkup", value: "linkup" },
                 { name: "Tavily", value: "tavily" },
                 { name: "Exa", value: "exa" },
-                { name: "Kagi", value: "kagi" }
+                { name: "Kagi", value: "kagi" },
+                { name: "Brave", value: "brave" },
+                { name: "Valyu", value: "valyu" }
             )
     )
     .addStringOption((option) =>
@@ -59,9 +61,53 @@ export const data = new SlashCommandBuilder()
                 { name: "Fast (Exa)", value: "fast" },
                 { name: "Auto (Exa)", value: "auto" },
                 { name: "Neural (Exa)", value: "neural" },
+                { name: "Instant", value: "instant" },
+                { name: "Deep reasoning", value: "deep-reasoning" },
                 { name: "Web (Kagi)", value: "web" },
                 { name: "News (Kagi)", value: "news" }
             )
+    )
+    .addNumberOption((option) =>
+        option.setName("temperature").setDescription("Sampling temperature").setRequired(false).setMinValue(0).setMaxValue(2)
+    )
+    .addNumberOption((option) =>
+        option.setName("top_p").setDescription("Nucleus sampling value").setRequired(false).setMinValue(0).setMaxValue(1)
+    )
+    .addIntegerOption((option) =>
+        option.setName("max_tokens").setDescription("Maximum output tokens").setRequired(false).setMinValue(1)
+    )
+    .addStringOption((option) =>
+        option
+            .setName("reasoning")
+            .setDescription("Reasoning effort")
+            .setRequired(false)
+            .addChoices(
+                { name: "None", value: "none" },
+                { name: "Minimal", value: "minimal" },
+                { name: "Low", value: "low" },
+                { name: "Medium", value: "medium" },
+                { name: "High", value: "high" },
+                { name: "Extra high", value: "xhigh" }
+            )
+    )
+    .addStringOption((option) =>
+        option.setName("provider").setDescription("Provider override header").setRequired(false)
+    )
+    .addStringOption((option) =>
+        option
+            .setName("billing")
+            .setDescription("Billing mode")
+            .setRequired(false)
+            .addChoices(
+                { name: "Pay as you go", value: "paygo" },
+                { name: "Subscription", value: "subscription" }
+            )
+    )
+    .addStringOption((option) =>
+        option.setName("suffix").setDescription("Exact model suffix override, for example :online/linkup-deep").setRequired(false)
+    )
+    .addStringOption((option) =>
+        option.setName("json").setDescription("Advanced chat JSON options").setRequired(false)
     )
     .addAttachmentOption((option) =>
         option
@@ -142,6 +188,14 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const modelOverride = interaction.options.getString("model");
     const searchProvider = interaction.options.getString("searchprovider") as WebSearchProvider | null;
     const searchVariant = interaction.options.getString("searchvariant") as WebSearchVariant | null;
+    const temperature = interaction.options.getNumber("temperature");
+    const topP = interaction.options.getNumber("top_p");
+    const maxTokens = interaction.options.getInteger("max_tokens");
+    const reasoning = interaction.options.getString("reasoning");
+    const provider = interaction.options.getString("provider");
+    const billing = interaction.options.getString("billing");
+    const suffix = interaction.options.getString("suffix");
+    const json = interaction.options.getString("json");
     const imageAttachment = interaction.options.getAttachment("image");
 
     const guildId = interaction.guildId || "dm";
@@ -153,6 +207,14 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         const isDeepSearch = searchVariant === "deep" || searchVariant === "search";
         const featureToCheck = isDeepSearch ? "DEEPSEARCH" : "WEBSEARCH";
         const check = canUseFeature(interaction, featureToCheck);
+        if (!check.allowed) {
+            await interaction.reply({ content: check.reason, ephemeral: true });
+            return;
+        }
+    }
+
+    if (billing === "paygo") {
+        const check = canUseFeature(interaction, "PAYGO");
         if (!check.allowed) {
             await interaction.reply({ content: check.reason, ephemeral: true });
             return;
@@ -209,10 +271,31 @@ export async function execute(interaction: ChatInputCommandInteraction) {
             messages.push({ role: "user", content: userMessage });
         }
 
-        // Make the API call
+        let extra: Record<string, unknown> = {};
+        if (json) {
+            try {
+                const parsed = JSON.parse(json) as unknown;
+                if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                    throw new Error("Advanced JSON must be an object.");
+                }
+                extra = parsed as Record<string, unknown>;
+            } catch {
+                await interaction.editReply({ content: "Invalid advanced JSON. Provide a JSON object." });
+                return;
+            }
+        }
+
         const response = await nanogpt.chat(messages, model, {
             webSearch: searchProvider || undefined,
-            webSearchVariant: searchVariant || undefined
+            webSearchVariant: searchVariant || undefined,
+            temperature: temperature ?? undefined,
+            top_p: topP ?? undefined,
+            max_tokens: maxTokens ?? undefined,
+            reasoning_effort: reasoning || undefined,
+            provider: provider || undefined,
+            billingMode: billing || undefined,
+            suffixOverride: suffix || undefined,
+            extra,
         });
 
         const assistantMessage =
@@ -292,4 +375,3 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         });
     }
 }
-

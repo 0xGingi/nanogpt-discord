@@ -1,5 +1,3 @@
-import { PDFParse } from "pdf-parse";
-
 export interface ParsedDocument {
     content: string;
     filename: string;
@@ -37,8 +35,15 @@ export async function parseDocument(
 }
 
 async function parsePDF(buffer: Buffer, filename: string): Promise<ParsedDocument> {
+    const { PDFParse } = await import("pdf-parse") as unknown as {
+        PDFParse: new (options: { data: Buffer }) => {
+            getText: () => Promise<{ text: string }>;
+            destroy: () => Promise<void>;
+        };
+    };
+    const parser = new PDFParse({ data: buffer });
     try {
-        const result = await pdfParse(buffer);
+        const result = await parser.getText();
 
         if (!result.text || result.text.trim().length === 0) {
             throw new Error("No text content could be extracted from the PDF. It may be an image-based PDF.");
@@ -54,6 +59,8 @@ async function parsePDF(buffer: Buffer, filename: string): Promise<ParsedDocumen
             throw new Error(`Failed to parse PDF: ${error.message}`);
         }
         throw new Error("Failed to parse PDF: Unknown error");
+    } finally {
+        await parser.destroy();
     }
 }
 

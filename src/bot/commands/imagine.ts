@@ -69,13 +69,16 @@ export const data = new SlashCommandBuilder()
     .addStringOption((option) =>
         option
             .setName("size")
-            .setDescription("Image size")
+            .setDescription("Image size, e.g. 1024x1024 or model-specific values")
             .setRequired(false)
-            .addChoices(
-                { name: "256x256", value: "256x256" },
-                { name: "512x512", value: "512x512" },
-                { name: "1024x1024", value: "1024x1024" }
-            )
+    )
+    .addIntegerOption((option) =>
+        option
+            .setName("count")
+            .setDescription("Number of images to generate")
+            .setRequired(false)
+            .setMinValue(1)
+            .setMaxValue(10)
     )
     .addNumberOption((option) =>
         option
@@ -105,6 +108,12 @@ export const data = new SlashCommandBuilder()
             .setDescription("Input image for img2img transformation")
             .setRequired(false)
     )
+    .addAttachmentOption((option) =>
+        option
+            .setName("mask")
+            .setDescription("Mask image for inpainting/edit models")
+            .setRequired(false)
+    )
     .addNumberOption((option) =>
         option
             .setName("strength")
@@ -112,6 +121,18 @@ export const data = new SlashCommandBuilder()
             .setRequired(false)
             .setMinValue(0)
             .setMaxValue(1)
+    )
+    .addBooleanOption((option) =>
+        option
+            .setName("kontext_max_mode")
+            .setDescription("Enable Flux Kontext max mode")
+            .setRequired(false)
+    )
+    .addStringOption((option) =>
+        option
+            .setName("json")
+            .setDescription("Advanced image JSON options")
+            .setRequired(false)
     );
 
 export async function autocomplete(interaction: AutocompleteInteraction) {
@@ -154,12 +175,16 @@ async function processImageAttachment(attachment: Attachment): Promise<string | 
 export async function execute(interaction: ChatInputCommandInteraction) {
     const prompt = interaction.options.getString("prompt", true);
     const model = interaction.options.getString("model");
-    const size = interaction.options.getString("size") as "256x256" | "512x512" | "1024x1024" | null;
+    const size = interaction.options.getString("size");
+    const count = interaction.options.getInteger("count");
     const guidance = interaction.options.getNumber("guidance");
     const steps = interaction.options.getInteger("steps");
     const seed = interaction.options.getInteger("seed");
     const imageAttachment = interaction.options.getAttachment("image");
+    const maskAttachment = interaction.options.getAttachment("mask");
     const strength = interaction.options.getNumber("strength");
+    const kontextMaxMode = interaction.options.getBoolean("kontext_max_mode");
+    const json = interaction.options.getString("json");
 
     // Check feature access
     const featureCheck = canUseFeature(interaction, "IMAGEGEN");
@@ -179,9 +204,21 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
         if (model) options.model = model;
         if (size) options.size = size;
+        if (count !== null) options.n = count;
         if (guidance !== null) options.guidance_scale = guidance;
         if (steps !== null) options.num_inference_steps = steps;
         if (seed !== null) options.seed = seed;
+        if (kontextMaxMode !== null) options.kontext_max_mode = kontextMaxMode;
+        if (json) {
+            try {
+                const parsed = JSON.parse(json) as unknown;
+                if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+                options.extra = parsed as Record<string, unknown>;
+            } catch {
+                await interaction.editReply({ content: "Invalid advanced JSON. Provide a JSON object." });
+                return;
+            }
+        }
 
         // Process input image for img2img if provided
         if (imageAttachment) {
@@ -197,6 +234,16 @@ export async function execute(interaction: ChatInputCommandInteraction) {
             options.imageDataUrl = imageDataUrl;
             if (strength !== null) options.strength = strength;
         }
+        if (maskAttachment) {
+            const maskDataUrl = await processImageAttachment(maskAttachment);
+            if (!maskDataUrl) {
+                await interaction.editReply({
+                    content: `Invalid mask format. Supported formats: ${VALID_IMAGE_TYPES.join(", ")}`,
+                });
+                return;
+            }
+            options.maskDataUrl = maskDataUrl;
+        }
 
         // Generate the image
         const response = await nanogpt.generateImage(prompt, options);
@@ -208,7 +255,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
             return;
         }
 
-        const imageUrl = response.data[0].url;
+        const imageUrl = response.data[0].url || (response.data[0].b64_json ? `data:image/png;base64,${response.data[0].b64_json}` : undefined);
 
         if (!imageUrl) {
             await interaction.editReply({

@@ -21,8 +21,10 @@ export async function execute(interaction: ChatInputCommandInteraction) {
                     "• `message` (required) - Your message to the AI",
                     "• `context` - Name of a saved context to include",
                     "• `model` - Override the default model for this message",
-                    "• `websearch` - Enable web search for real-time info ($0.006/req)",
-                    "• `deepsearch` - Enable deep web search for comprehensive info ($0.06/req)",
+                    "• `searchprovider` - Enable web search with a provider",
+                    "• `searchvariant` - Select provider-specific search behavior",
+                    "• `temperature`, `top_p`, `max_tokens` - Sampling controls",
+                    "• `reasoning`, `provider`, `billing`, `suffix`, `json` - Advanced NanoGPT options",
                     "• `image` - Attach an image to analyze (png, jpg, jpeg, webp)",
                 ].join("\n"),
                 inline: false,
@@ -52,7 +54,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
             },
             {
                 name: "/models",
-                value: "List all available AI models from NanoGPT.",
+                value: "List NanoGPT model catalogs: subscription, paid, canonical, image, video, audio, embedding, character, and personalized.",
                 inline: false,
             },
             {
@@ -96,6 +98,19 @@ export async function execute(interaction: ChatInputCommandInteraction) {
                     "• `url` (required) - URL to scrape (up to 5 URLs: url, url2-url5)",
                     "• `stealth` - Use stealth mode for tougher targets (5x cost)",
                     "• `download` - Attach results as .md file(s)",
+                ].join("\n"),
+                inline: false,
+            },
+            {
+                name: "API parity commands",
+                value: [
+                    "• `/responses create`, `/messages create`, `/completion`, `/tokens count`",
+                    "• `/extract firecrawl|maps|maps-reviews|facebook-ads|instagram-profile|instagram-posts|reddit|tiktok|hunter`",
+                    "• `/image generate|edit|classify`, `/video generate|status|recover|extend|content`",
+                    "• `/audio speech|tts|tts-status|transcribe|transcribe-status|voice-clone`",
+                    "• `/search web`, `/embed create`, `/detect ai|plagiarism`, `/youtube transcribe`",
+                    "• `/tee attestation|signature`, `/characters search|mine|view|create|edit|delete|review|report`",
+                    "Most commands include a `json` option for advanced NanoGPT fields.",
                 ].join("\n"),
                 inline: false,
             }

@@ -22,7 +22,7 @@ db.exec(`
   -- Guild/Server settings
   CREATE TABLE IF NOT EXISTS guilds (
     id TEXT PRIMARY KEY,
-    default_model TEXT DEFAULT 'gpt-4o-mini',
+    default_model TEXT DEFAULT 'moonshotai/kimi-latest',
     created_at INTEGER DEFAULT (unixepoch())
   );
 
@@ -136,7 +136,7 @@ export function getDefaultModel(guildId: string, userId: string): string {
         return guild.default_model;
     }
 
-    return process.env.DEFAULT_MODEL || "gpt-4o-mini";
+    return process.env.DEFAULT_MODEL || "moonshotai/kimi-latest";
 }
 
 export function setGuildModel(guildId: string, model: string): void {

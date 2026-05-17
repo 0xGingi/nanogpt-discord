@@ -1,6 +1,17 @@
 import { ChatInputCommandInteraction } from "discord.js";
 
-type FeatureName = "WEBSEARCH" | "DEEPSEARCH" | "IMAGEGEN" | "SCRAPE";
+type FeatureName =
+    | "WEBSEARCH"
+    | "DEEPSEARCH"
+    | "IMAGEGEN"
+    | "SCRAPE"
+    | "PAYGO"
+    | "VIDEO"
+    | "AUDIO"
+    | "EMBEDDINGS"
+    | "DETECTION"
+    | "DIRECT_SEARCH"
+    | "ADVANCED_CHAT";
 
 interface FeatureCheck {
     allowed: boolean;

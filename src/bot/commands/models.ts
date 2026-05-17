@@ -8,10 +8,31 @@ import {
     ComponentType,
 } from "discord.js";
 import { nanogpt } from "../../api/nanogpt.ts";
+import type { ModelCatalog } from "../../api/nanogpt.ts";
 
 export const data = new SlashCommandBuilder()
     .setName("models")
-    .setDescription("List available AI models");
+    .setDescription("List available AI models")
+    .addStringOption((option) =>
+        option
+            .setName("type")
+            .setDescription("Model catalog to list")
+            .setRequired(false)
+            .addChoices(
+                { name: "Subscription text", value: "subscription" },
+                { name: "Canonical text", value: "canonical" },
+                { name: "Paid text", value: "paid" },
+                { name: "Personalized", value: "personalized" },
+                { name: "Image", value: "image" },
+                { name: "Video", value: "video" },
+                { name: "Audio", value: "audio" },
+                { name: "Embedding", value: "embedding" },
+                { name: "Character", value: "character" }
+            )
+    )
+    .addBooleanOption((option) =>
+        option.setName("detailed").setDescription("Request detailed model metadata").setRequired(false)
+    );
 
 function createEmbed(page: string[], pageIndex: number, totalPages: number, totalModels: number): EmbedBuilder {
     return new EmbedBuilder()
@@ -42,7 +63,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply();
 
     try {
-        const models = await nanogpt.getModels();
+        const catalog = (interaction.options.getString("type") || "subscription") as ModelCatalog;
+        const detailed = interaction.options.getBoolean("detailed") ?? false;
+        const models = await nanogpt.getModels(catalog, detailed);
 
         if (!models || models.length === 0) {
             await interaction.editReply({
@@ -53,7 +76,14 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
         // Group models into chunks for pagination
         const MODELS_PER_PAGE = 25;
-        const modelNames = models.map((m) => m.id || m.name || "Unknown");
+        const modelNames = models.map((m) => {
+            const id = m.id || m.name || "Unknown";
+            if (!detailed) return id;
+            const bits = [id];
+            if (m.description) bits.push(String(m.description).slice(0, 80));
+            if (m.pricing) bits.push(`pricing: ${JSON.stringify(m.pricing).slice(0, 80)}`);
+            return bits.join(" - ");
+        });
         const pages: string[][] = [];
 
         for (let i = 0; i < modelNames.length; i += MODELS_PER_PAGE) {
