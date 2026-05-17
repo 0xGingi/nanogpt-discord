@@ -1,7 +1,11 @@
 import {
     Attachment,
     AttachmentBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
     ChatInputCommandInteraction,
+    ComponentType,
     EmbedBuilder,
 } from "discord.js";
 import type { JsonObject } from "../../api/nanogpt.ts";
@@ -44,10 +48,23 @@ export async function attachmentToDataUrl(
     return `data:${contentType};base64,${buffer.toString("base64")}`;
 }
 
-export function compactJson(value: unknown, maxLength = 3200): string {
+const JSON_PAGE_SIZE = 3200;
+const MAX_JSON_PAGES = 25;
+
+function formatJsonPage(page: string): string {
+    return `\`\`\`json\n${page}\n\`\`\``;
+}
+
+function paginateJson(value: unknown): { pages: string[]; truncated: boolean } {
     const json = JSON.stringify(value, null, 2);
-    if (json.length <= maxLength) return `\`\`\`json\n${json}\n\`\`\``;
-    return `\`\`\`json\n${json.slice(0, maxLength - 40)}\n... truncated; see attachment\n\`\`\``;
+    const pages: string[] = [];
+    for (let i = 0; i < json.length && pages.length < MAX_JSON_PAGES; i += JSON_PAGE_SIZE) {
+        pages.push(json.slice(i, i + JSON_PAGE_SIZE));
+    }
+    return {
+        pages: pages.length > 0 ? pages : ["null"],
+        truncated: json.length > JSON_PAGE_SIZE * MAX_JSON_PAGES,
+    };
 }
 
 export function jsonAttachment(value: unknown, filename: string): AttachmentBuilder {
@@ -60,15 +77,84 @@ export async function replyJson(
     result: unknown,
     filename: string
 ) {
-    const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setDescription(compactJson(result))
-        .setTimestamp();
+    const { pages, truncated } = paginateJson(result);
+    let currentPage = 0;
 
-    await interaction.editReply({
-        embeds: [embed],
-        files: [jsonAttachment(result, filename)],
+    const createEmbed = () =>
+        new EmbedBuilder()
+            .setTitle(title)
+            .setDescription(formatJsonPage(pages[currentPage]))
+            .setFooter({
+                text: `Page ${currentPage + 1}/${pages.length}${truncated ? " | Output truncated; full JSON attached" : ""}`,
+            })
+            .setTimestamp();
+
+    const createButtons = () =>
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId("json_prev")
+                .setLabel("Previous")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentPage === 0),
+            new ButtonBuilder()
+                .setCustomId("json_next")
+                .setLabel("Next")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(currentPage === pages.length - 1)
+        );
+
+    const payload = {
+        embeds: [createEmbed()],
+        components: pages.length > 1 ? [createButtons()] : [],
+        files: truncated ? [jsonAttachment(result, filename)] : [],
+    };
+
+    const message = await interaction.editReply(payload);
+
+    if (pages.length <= 1) return;
+
+    const collector = message.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 5 * 60 * 1000,
     });
+
+    collector.on("collect", async (buttonInteraction) => {
+        if (buttonInteraction.user.id !== interaction.user.id) {
+            await buttonInteraction.reply({
+                content: "Only the command author can use these buttons.",
+                ephemeral: true,
+            });
+            return;
+        }
+
+        if (buttonInteraction.customId === "json_prev" && currentPage > 0) {
+            currentPage--;
+        } else if (buttonInteraction.customId === "json_next" && currentPage < pages.length - 1) {
+            currentPage++;
+        }
+
+        await buttonInteraction.update({
+            embeds: [createEmbed()],
+            components: [createButtons()],
+        });
+    });
+
+    collector.on("end", async () => {
+        try {
+            await interaction.editReply({
+                embeds: [createEmbed()],
+                components: [],
+            });
+        } catch {
+            // Message may have been deleted.
+        }
+    });
+}
+
+export function compactJson(value: unknown, maxLength = 3200): string {
+    const json = JSON.stringify(value, null, 2);
+    if (json.length <= maxLength) return formatJsonPage(json);
+    return formatJsonPage(`${json.slice(0, maxLength - 20)}\n... truncated`);
 }
 
 export function mergeDefined(base: JsonObject, values: JsonObject): JsonObject {

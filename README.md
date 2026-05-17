@@ -10,7 +10,7 @@ A Discord bot powered by the NanoGPT API. It supports chat, memory, document con
 - NanoGPT model catalogs for subscription, paid, canonical, personalized, image, video, audio, embedding, and character models
 - Pay-as-you-go capable API access for supported NanoGPT endpoints
 - Advanced `json` passthrough options on broad API commands for fast-moving NanoGPT fields
-- Result JSON attachments for large extraction, embedding, detection, and metadata responses
+- Paginated JSON embeds for extraction, embedding, detection, and metadata responses, with an attachment fallback for extremely large payloads
 
 ## Setup
 
@@ -217,4 +217,4 @@ Supported file types:
 
 - Existing user or server defaults stored in SQLite override `DEFAULT_MODEL`.
 - Register slash commands again after command changes with `bun run register`.
-- Large API results are returned as JSON attachments to avoid Discord message length limits.
+- Large JSON API results are paginated in Discord with Previous/Next buttons. Extremely large payloads are truncated in embeds and include a full JSON attachment fallback.
